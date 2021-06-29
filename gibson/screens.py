@@ -202,28 +202,28 @@ class WallScreen(_Screen):
                 self._send_unicode("[OK]", color=YELLOW)
 
 
-class CBMWorldScreen(_Screen):
-    def activate(self):
-        self._reset()
-
-        import discourse
-
-        client = discourse.Client(host='https://forum.cbm.world', api_username='benjamin',
-                                  api_key='bfb02a361033051f0225dc227a44419c618803294b874e5cf887e34a924924a8', )
-
-        latest = client.get_latest_topics('default')
-
-        for topic in latest:
-            self._send_unicode(topic.created_at[5:10] + " ", GREEN)
-            self._send_unicode(topic.title, WHITE)
-            self.connection.send(RETURN * 2)
-
-        self.connection.send(RETURN)
-
-        self._go_to(1, 23)
-        self._send_unicode("Press any key", PINK)
-        self._send_unicode(">", color=YELLOW)
-
-    def handle_input(self, character):
-        self.connection.send(REVERSE_OFF)
-        self.session.set_screen('mainmenu')
+# class CBMWorldScreen(_Screen):
+#     def activate(self):
+#         self._reset()
+#
+#         import discourse
+#
+#         client = discourse.Client(host='https://forum.cbm.world', api_username='benjamin',
+#                                   api_key='bfb02a361033051f0225dc227a44419c618803294b874e5cf887e34a924924a8', )
+#
+#         latest = client.get_latest_topics('default')
+#
+#         for topic in latest:
+#             self._send_unicode(topic.created_at[5:10] + " ", GREEN)
+#             self._send_unicode(topic.title, WHITE)
+#             self.connection.send(RETURN * 2)
+#
+#         self.connection.send(RETURN)
+#
+#         self._go_to(1, 23)
+#         self._send_unicode("Press any key", PINK)
+#         self._send_unicode(">", color=YELLOW)
+#
+#     def handle_input(self, character):
+#         self.connection.send(REVERSE_OFF)
+#         self.session.set_screen('mainmenu')
