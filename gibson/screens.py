@@ -49,9 +49,10 @@ class SplashScreen(_Screen):
         self._reset()
         time.sleep(1)
 
+        self._reset()
+
         with open('resources/splash.seq', 'rb') as f:
-            for byte in f.read():
-                self.connection.send(bytes([byte]))
+            self.connection.send(f.read())
 
         self._go_to(28, 13)
         self.connection.send(LIGHT_BLUE)
