@@ -16,6 +16,14 @@ class _Screen:
     def connection(self):
         return self.session.connection
 
+    def send(self, message):
+        for b in message:
+            self.connection.send(bytes([b]))
+
+    def send_unicode(self, string, color=b''):
+        # TODO: replace invalid characters
+        self.send(color + bytes([ord(s) for s in string]).swapcase())
+
     def activate(self):
         raise NotImplementedError
 
@@ -23,12 +31,12 @@ class _Screen:
         raise NotImplementedError
 
     def _reset(self):
-        self.connection.send(WHITE)
-        self.connection.send(CLEAR)
+        self.send(WHITE)
+        self.send(CLEAR)
         self._go_home()
 
     def _go_home(self):
-        self.connection.send(HOME)
+        self.send(HOME)
         self.cursor_x = 0
         self.cursor_y = 0
 
@@ -37,33 +45,21 @@ class _Screen:
         self._go_home()
         self.cursor_x += column
         self.cursor_y += row
-        self.connection.send(CURSOR_RIGHT * column + CURSOR_DOWN * row)
-
-    def _send_unicode(self, string, color=b''):
-        # TODO: replace invalid characters
-        self.connection.send(color + bytes([ord(s) for s in string]).swapcase())
+        self.send(CURSOR_RIGHT * column + CURSOR_DOWN * row)
 
 
 class SplashScreen(_Screen):
     def activate(self):
-        self._reset()
-        time.sleep(1)
-
-        self._reset()
-
-        with open('resources/splash.seq', 'rb') as f:
-            self.connection.send(f.read())
-
-        self._go_to(28, 13)
-        self.connection.send(LIGHT_BLUE)
+        self._go_home()
+        self.send_unicode("Smash that DEL key!", color=WHITE)
 
     def handle_input(self, character):
-        self.connection.send(REVERSE_OFF)
+        self.send(REVERSE_OFF)
         self._reset()
         if character == DELETE:
             self.session.set_screen('login')
         else:
-            self.session.connection.close()
+            self.connection.close()
 
 
 class LoginScreen(_Screen):
@@ -71,21 +67,20 @@ class LoginScreen(_Screen):
         self._reset()
 
         with open('resources/mainmenu.seq', 'rb') as f:
-            seq = f.read()
-            self.connection.send(seq)
+            self.send(f.read())
 
         self._go_to(column=15, row=2)
-        self._send_unicode("  Log In  ", CYAN)
+        self.send_unicode("  Log In  ", CYAN)
 
         self._go_to(column=4, row=6)
-        self._send_unicode("[E] Existing Account", LIGHT_GREEN)
+        self.send_unicode("[E] Existing Account", LIGHT_GREEN)
         self._go_to(column=4, row=7)
-        self._send_unicode("[N] New Account", LIGHT_GREEN)
+        self.send_unicode("[N] New Account", LIGHT_GREEN)
         self._go_to(column=4, row=8)
-        self._send_unicode("[Q] Log off", PINK)
+        self.send_unicode("[Q] Log off", PINK)
 
         self._go_to(2, 24)
-        self._send_unicode(">", color=YELLOW)
+        self.send_unicode(">", color=YELLOW)
 
     def handle_input(self, character):
         self.session.set_screen('mainmenu')
@@ -98,21 +93,21 @@ class MainMenuScreen(_Screen):
 
         with open('resources/mainmenu.seq', 'rb') as f:
             seq = f.read()
-            self.connection.send(seq)
+            self.send(seq)
 
         self._go_to(column=15, row=2)
-        self._send_unicode("Main  Menu", CYAN)
+        self.send_unicode("Main  Menu", CYAN)
 
         self._go_to(column=4, row=6)
-        self._send_unicode("[B] Browse CBM World", LIGHT_GREEN)
+        self.send_unicode("[B] Browse CBM World", LIGHT_GREEN)
         self._go_to(column=4, row=7)
-        self._send_unicode("[V] View the Wall", LIGHT_GREEN)
+        self.send_unicode("[V] View the Wall", LIGHT_GREEN)
         self._go_to(column=4, row=8)
-        self._send_unicode("[R] Refresh", LIGHT_GREEN)
+        self.send_unicode("[R] Refresh", LIGHT_GREEN)
         self._go_to(column=4, row=10)
-        self._send_unicode("[Q] Log off", PINK)
+        self.send_unicode("[Q] Log off", PINK)
         self._go_to(2, 24)
-        self._send_unicode(">", color=YELLOW)
+        self.send_unicode(">", color=YELLOW)
 
     def handle_input(self, character):
 
@@ -150,16 +145,16 @@ class WallScreen(_Screen):
 
         # Write the existing entries:
         for entry in self.entries:
-            self.connection.send(entry)
-            self.connection.send(RETURN * 2)
+            self.send(entry)
+            self.send(RETURN * 2)
 
         self._go_to(1, 23)
-        self._send_unicode("Write an entry? [y/N]", PINK)
-        self._send_unicode(">", color=YELLOW)
+        self.send_unicode("Write an entry? [y/N]", PINK)
+        self.send_unicode(">", color=YELLOW)
 
     def handle_input(self, character):
         if self.echo:
-            self.connection.send(character)
+            self.send(character)
 
         if not self._in_entry:
 
@@ -168,11 +163,11 @@ class WallScreen(_Screen):
                 self.echo = True
                 self._in_entry = True
 
-                self.connection.send(CURSOR_RIGHT + character + RETURN * 2)
-                self._send_unicode("Maximum of 80 characters.\r", PINK)
-                self._send_unicode("Hit RETURN twice when finished.", PINK)
-                self.connection.send(RETURN * 2 + CURSOR_RIGHT * 2)
-                self._send_unicode(">", color=YELLOW)
+                self.send(CURSOR_RIGHT + character + RETURN * 2)
+                self.send_unicode("Maximum of 80 characters.\r", PINK)
+                self.send_unicode("Hit RETURN twice when finished.", PINK)
+                self.send(RETURN * 2 + CURSOR_RIGHT * 2)
+                self.send_unicode(">", color=YELLOW)
 
             elif character in (b'N', b'\r'):
                 # Just return to the main menu:
@@ -199,8 +194,8 @@ class WallScreen(_Screen):
                 self._in_entry = False
                 self.echo = False
                 self._returns = 0
-                self._send_unicode("Saved!", PINK)
-                self._send_unicode("[OK]", color=YELLOW)
+                self.send_unicode("Saved!", PINK)
+                self.send_unicode("[OK]", color=YELLOW)
 
 
 # class CBMWorldScreen(_Screen):
@@ -217,14 +212,14 @@ class WallScreen(_Screen):
 #         for topic in latest:
 #             self._send_unicode(topic.created_at[5:10] + " ", GREEN)
 #             self._send_unicode(topic.title, WHITE)
-#             self.connection.send(RETURN * 2)
+#             self.send(RETURN * 2)
 #
-#         self.connection.send(RETURN)
+#         self.send(RETURN)
 #
 #         self._go_to(1, 23)
 #         self._send_unicode("Press any key", PINK)
 #         self._send_unicode(">", color=YELLOW)
 #
 #     def handle_input(self, character):
-#         self.connection.send(REVERSE_OFF)
+#         self.send(REVERSE_OFF)
 #         self.session.set_screen('mainmenu')
