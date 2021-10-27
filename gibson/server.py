@@ -128,12 +128,19 @@ class SessionManager:
     """
 
     def __init__(self):
-        self._sessions = weakref.WeakSet()
+        self._sessions = set()
+
+    @property
+    def active_sessions(self):
+        return len(self._sessions)
 
     def create_session(self, connection):
         session = Session(connection, self)
         self._sessions.add(session)
         return session
+
+    def remove_session(self, session):
+        self._sessions.remove(session)
 
     def broadcast_message(self, message):
         for session in self._sessions:
@@ -144,7 +151,7 @@ class Session:
 
     def __init__(self, connection, manager):
         connection.set_handler('on_receive', self.handle_input)
-        connection.send(CLEAR)
+        connection.set_handler('on_disconnect', self._on_session_disconnect)
         self.connection = weakref.proxy(connection)
         self.manager = weakref.proxy(manager)
 
@@ -165,6 +172,12 @@ class Session:
         instance.session = self
         self._screens[name] = instance
         self._current_screen = instance
+
+    def _on_session_disconnect(self, connection):
+        if self.handle:
+            sign_off_message = b" " * 13 + self.handle + b' has left the chat.'
+            self.manager.broadcast_message(sign_off_message + RETURN)
+        self.manager.remove_session(self)
 
     def set_screen(self, name):
         self._current_screen = self._screens.get(name, self._current_screen)

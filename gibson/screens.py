@@ -87,7 +87,7 @@ class LoginScreen(_Screen):
         self._reset()
 
         self.send(RETURN * 10)
-        self.send_unicode("  Enter your handle (max 6 characters).", PINK)
+        self.send_unicode("  Enter your handle (max 8 characters).", PINK)
         self.send(RETURN * 2)
         self.send_unicode("  Hit RETURN when finished...", PINK)
 
@@ -110,7 +110,7 @@ class LoginScreen(_Screen):
                 self.send(character)
 
         # Only add to the buffer if it's < 6 characters:
-        elif len(self._buffer) < 6:
+        elif len(self._buffer) < 8:
             self._buffer += character
             self.send(character)
 
@@ -118,27 +118,34 @@ class LoginScreen(_Screen):
 class ChatScreen(_Screen):
 
     def __init__(self):
-        # TODO: put a limit on the size of the send_buffer
-        self._send_buffer = b""
+        self._send_queue = deque(maxlen=6)
         self._recv_buffer = b""
         self._in_entry = False
-        self._max_len = 72
+        self._max_len = 110
 
     def activate(self):
         self._reset()
         self.send_unicode("Welcome to C64 Chat, ")
         self.send(CYAN + self.session.handle)
         self.send_unicode(".", CYAN)
+        self.send(RETURN)
+        self.send_unicode(f"There are {self.session.manager.active_sessions - 1} other users online.")
         self.send(RETURN * 23)
 
     def handle_output(self, message):
         if self._in_entry:
-            self._send_buffer += message
+            self._send_queue.append(message)
         else:
-            self.send(self._send_buffer + message)
-            self._send_buffer = b''
+            for queued_message in self._send_queue:
+                self.send(queued_message)
+            self.send(message)
+            self._send_queue.clear()
 
     def handle_input(self, character):
+        # Ignore some characters
+        if not self._in_entry and character in (RETURN, DELETE, CURSOR_UP, CURSOR_DOWN, CURSOR_LEFT, CURSOR_RIGHT):
+            return
+
         # Client is typing a message:
         if not self._in_entry:
             self._in_entry = True
