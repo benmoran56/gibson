@@ -1,5 +1,6 @@
-import time
+import random
 
+from collections import deque
 from datetime import datetime
 
 from .petscii import *
@@ -12,23 +13,37 @@ class _Screen:
     cursor_x = 0
     cursor_y = 0
 
+    send_colors = deque([LIGHT_GREY, GREY])
+
     @property
     def connection(self):
         return self.session.connection
 
     def send(self, message):
-        for b in message:
-            self.connection.send(bytes([b]))
+        self.connection.send(message)
 
     def send_unicode(self, string, color=b''):
         # TODO: replace invalid characters
         self.send(color + bytes([ord(s) for s in string]).swapcase())
+
+    def broadcast_message(self, message, color=b""):
+        """Send a message to all other Clients & clean up the input afterwards."""
+        # First clean up the entry:
+        self.send(DELETE * (len(message) + 2))
+        # Then tag & send the message to all Clients:
+        tagged_message = self.session.handle + YELLOW + b'> ' + self.send_colors[0] + message + RETURN
+        self.send_colors.rotate(1)
+        self.session.manager.broadcast_message(tagged_message)
 
     def activate(self):
         raise NotImplementedError
 
     def handle_input(self, character):
         raise NotImplementedError
+
+    def handle_output(self, message):
+        """For sending broadcasts"""
+        pass
 
     def _reset(self):
         self.send(WHITE)
@@ -48,178 +63,103 @@ class _Screen:
         self.send(CURSOR_RIGHT * column + CURSOR_DOWN * row)
 
 
-class SplashScreen(_Screen):
+class WelcomeScreen(_Screen):
+
     def activate(self):
-        self._go_home()
+        self._reset()
         self.send_unicode("Smash that DEL key!", color=WHITE)
 
     def handle_input(self, character):
-        self.send(REVERSE_OFF)
-        self._reset()
         if character == DELETE:
+            self.send(REVERSE_OFF)
+            self.send(RETURN)
             self.session.set_screen('login')
         else:
             self.connection.close()
 
 
 class LoginScreen(_Screen):
-    def activate(self):
-        self._reset()
-
-        with open('resources/mainmenu.seq', 'rb') as f:
-            self.send(f.read())
-
-        self._go_to(column=15, row=2)
-        self.send_unicode("  Log In  ", CYAN)
-
-        self._go_to(column=4, row=6)
-        self.send_unicode("[E] Existing Account", LIGHT_GREEN)
-        self._go_to(column=4, row=7)
-        self.send_unicode("[N] New Account", LIGHT_GREEN)
-        self._go_to(column=4, row=8)
-        self.send_unicode("[Q] Log off", PINK)
-
-        self._go_to(2, 24)
-        self.send_unicode(">", color=YELLOW)
-
-    def handle_input(self, character):
-        self.session.set_screen('mainmenu')
-
-
-class MainMenuScreen(_Screen):
-
-    def activate(self):
-        self._reset()
-
-        with open('resources/mainmenu.seq', 'rb') as f:
-            seq = f.read()
-            self.send(seq)
-
-        self._go_to(column=15, row=2)
-        self.send_unicode("Main  Menu", CYAN)
-
-        self._go_to(column=4, row=6)
-        self.send_unicode("[B] Browse CBM World", LIGHT_GREEN)
-        self._go_to(column=4, row=7)
-        self.send_unicode("[V] View the Wall", LIGHT_GREEN)
-        self._go_to(column=4, row=8)
-        self.send_unicode("[R] Refresh", LIGHT_GREEN)
-        self._go_to(column=4, row=10)
-        self.send_unicode("[Q] Log off", PINK)
-        self._go_to(2, 24)
-        self.send_unicode(">", color=YELLOW)
-
-    def handle_input(self, character):
-
-        if character == b'R':
-            self.activate()
-            return
-
-        elif character == b'Q':
-            self.connection.close()
-            return
-
-        elif character == b'V':
-            self.session.set_screen('wall')
-
-        elif character == b'B':
-            self.session.set_screen('cbmworld')
-
-
-class WallScreen(_Screen):
-
-    entries = [GREEN + b"21-jAN-01> " + LIGHT_BLUE + b"This is a fantastic BBS!".swapcase(),
-               GREEN + b"21-jAN-15> " + LIGHT_BLUE + b"Wooo, what a great BBS. The best around!".swapcase()]
 
     def __init__(self):
-        self._in_entry = False
-        self._buffer = b''
-        self._returns = 0
-
-    @staticmethod
-    def _get_timestamp():
-        return f"{datetime.now().strftime('%y-%b-%d')}> ".swapcase().encode()
+        self._buffer = b""
 
     def activate(self):
         self._reset()
 
-        # Write the existing entries:
-        for entry in self.entries:
-            self.send(entry)
-            self.send(RETURN * 2)
+        self.send(RETURN * 10)
+        self.send_unicode("  Enter your handle (max 6 characters).", PINK)
+        self.send(RETURN * 2)
+        self.send_unicode("  Hit RETURN when finished...", PINK)
 
-        self._go_to(1, 23)
-        self.send_unicode("Write an entry? [y/N]", PINK)
-        self.send_unicode(">", color=YELLOW)
+        self._go_to(0, 24)
+        self.send_unicode("> ", color=YELLOW)
 
     def handle_input(self, character):
-        if self.echo:
+
+        # If the buffer is not empty, and RETURN is pressed:
+        if character == RETURN:
+            if len(self._buffer) > 1:
+                color = random.choice([PINK, GREEN, LIGHT_GREEN, BLUE, LIGHT_BLUE, CYAN])
+                self.session.handle = color + self._buffer
+                self.session.set_screen('chat')
+
+        # Backspace character:
+        elif character == DELETE:
+            if len(self._buffer) > 0:
+                self._buffer = self._buffer[:-1]
+                self.send(character)
+
+        # Only add to the buffer if it's < 6 characters:
+        elif len(self._buffer) < 6:
+            self._buffer += character
             self.send(character)
 
+
+class ChatScreen(_Screen):
+
+    def __init__(self):
+        self._send_buffer = b""
+        self._recv_buffer = b""
+        self._in_entry = False
+        self._max_len = 72
+
+    def activate(self):
+        self._reset()
+        self.send_unicode("Welcome to C64 Chat, ")
+        self.send(CYAN + self.session.handle)
+        self.send_unicode(".", CYAN)
+        self.send(RETURN * 2)
+
+    def handle_output(self, message):
+        if self._in_entry:
+            self._send_buffer += message
+        else:
+            self.send(self._send_buffer + message)
+            self._send_buffer = b''
+
+    def handle_input(self, character):
+        # Client is typing a message:
         if not self._in_entry:
+            self._in_entry = True
+            self._go_to(0, 24)
+            self.send_unicode("> ", color=YELLOW)
 
-            if character == b'Y':
-                # Print the Instructions:
-                self.echo = True
-                self._in_entry = True
-
-                self.send(CURSOR_RIGHT + character + RETURN * 2)
-                self.send_unicode("Maximum of 80 characters.\r", PINK)
-                self.send_unicode("Hit RETURN twice when finished.", PINK)
-                self.send(RETURN * 2 + CURSOR_RIGHT * 2)
-                self.send_unicode(">", color=YELLOW)
-
-            elif character in (b'N', b'\r'):
-                # Just return to the main menu:
-                self.session.set_screen('mainmenu')
-
-        elif self._in_entry:
-
-            # Backspace character:
-            if character == b'\x14' and len(self._buffer) > 1:
-                self._buffer = self._buffer[:-1]
-
-            # Only add to the buffer if it's < 80 characters:
-            if len(self._buffer) < 80 or character == RETURN:
-                self._buffer += character
-
-            # Return has been entered twice. Save and return:
-            if len(self._buffer) > 2 and self._buffer[-2:] == RETURN + RETURN:
-                print(self._buffer, self._buffer[-2:])
-                if len(self._buffer) > 2:
-                    self.entries.append(GREEN + self._get_timestamp() + LIGHT_BLUE + self._buffer[:-1])
-
-                # Reset options before returning:
-                self._buffer = b''
+        # If the buffer is not empty, and RETURN is pressed:
+        if character == RETURN:
+            if len(self._recv_buffer) > 0:
                 self._in_entry = False
-                self.echo = False
-                self._returns = 0
-                self.send_unicode("Saved!", PINK)
-                self.send_unicode("[OK]", color=YELLOW)
+                self.broadcast_message(self._recv_buffer)
+                self._recv_buffer = b""
+            elif len(self._recv_buffer) == 0:
+                self.send(DELETE * 2)
 
+        # Backspace character:
+        elif character == DELETE:
+            if len(self._recv_buffer) > 0:
+                self._recv_buffer = self._recv_buffer[:-1]
+                self.send(character)
 
-# class CBMWorldScreen(_Screen):
-#     def activate(self):
-#         self._reset()
-#
-#         import discourse
-#
-#         client = discourse.Client(host='https://forum.cbm.world', api_username='benjamin',
-#                                   api_key='bfb02a361033051f0225dc227a44419c618803294b874e5cf887e34a924924a8', )
-#
-#         latest = client.get_latest_topics('default')
-#
-#         for topic in latest:
-#             self._send_unicode(topic.created_at[5:10] + " ", GREEN)
-#             self._send_unicode(topic.title, WHITE)
-#             self.send(RETURN * 2)
-#
-#         self.send(RETURN)
-#
-#         self._go_to(1, 23)
-#         self._send_unicode("Press any key", PINK)
-#         self._send_unicode(">", color=YELLOW)
-#
-#     def handle_input(self, character):
-#         self.send(REVERSE_OFF)
-#         self.session.set_screen('mainmenu')
+        # Only add to the buffer if it's < 6 characters:
+        elif len(self._recv_buffer) < self._max_len:
+            self._recv_buffer += character
+            self.send(character)

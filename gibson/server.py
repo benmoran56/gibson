@@ -70,6 +70,9 @@ class AsyncConnection(_EventDispatcher):
     def on_disconnect(self, connection):
         """Event for disconnection. """
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}{self._writer.get_extra_info('peername')}"
+
     def __del__(self):
         print("Garbage Collected: ", self)
 
@@ -87,8 +90,8 @@ class Server(_EventDispatcher):
         self._port = port
         self._bps = bps
 
-        self._sessions = {}
         self._server = None
+        self._session_manager = SessionManager()
 
     async def handle_connection(self, reader, writer):
         connection = AsyncConnection(reader, writer, self._bps)
@@ -105,39 +108,60 @@ class Server(_EventDispatcher):
         except KeyboardInterrupt:
             self._server.close()
 
-    def _connection_cleanup(self, connection):
-        del self._sessions[connection]
-
     def on_connection(self, connection):
         """Event for new Connections received."""
         print("Connected <---", connection)
-        connection.set_handler('on_disconnect', self._connection_cleanup)
-        self._sessions[connection] = Session(connection)
+        self._session_manager.create_session(connection=connection)
 
 
 Server.register_event_type('on_connection')
 
 
+class SessionManager:
+    """Session Manager
+
+    The Session Manager keeps track of all open Sessions.
+    In addition, it provides a way for Sessions to indirectly
+    communicate with eath other. All sessions will have a
+    reference to the Manager, so they can access it's
+    data and methods.
+    """
+
+    def __init__(self):
+        self._sessions = weakref.WeakSet()
+
+    def create_session(self, connection):
+        session = Session(connection, self)
+        self._sessions.add(session)
+        return session
+
+    def broadcast_message(self, message):
+        for session in self._sessions:
+            session.handle_output(message)
+
+
 class Session:
 
-    def __init__(self, connection):
-        connection.set_handler('on_receive', self.on_receive)
+    def __init__(self, connection, manager):
+        connection.set_handler('on_receive', self.handle_input)
         connection.send(CLEAR)
-
         self.connection = weakref.proxy(connection)
+        self.manager = weakref.proxy(manager)
 
         self._screens = {}
         self._current_screen = None
 
-        self.add_screen('splash', SplashScreen())
-        self.add_screen('login', LoginScreen())
-        self.add_screen('mainmenu', MainMenuScreen())
-        self.add_screen('wall', WallScreen())
-        # self.add_screen('cbmworld', CBMWorldScreen())
+        self._add_screen('welcome', WelcomeScreen())
+        self._add_screen('login', LoginScreen())
+        self._add_screen('chat', ChatScreen())
 
-        self.set_screen('splash')
+        self.set_screen('welcome')
 
-    def add_screen(self, name, instance):
+        # Chat related details
+
+        self.handle = b""
+
+    def _add_screen(self, name, instance):
         instance.session = self
         self._screens[name] = instance
         self._current_screen = instance
@@ -146,5 +170,8 @@ class Session:
         self._current_screen = self._screens.get(name, self._current_screen)
         self._current_screen.activate()
 
-    def on_receive(self, message):
+    def handle_output(self, message):
+        self._current_screen.handle_output(message)
+
+    def handle_input(self, message):
         self._current_screen.handle_input(message)
