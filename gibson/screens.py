@@ -118,6 +118,7 @@ class LoginScreen(_Screen):
 class ChatScreen(_Screen):
 
     def __init__(self):
+        # TODO: put a limit on the size of the send_buffer
         self._send_buffer = b""
         self._recv_buffer = b""
         self._in_entry = False
@@ -128,7 +129,7 @@ class ChatScreen(_Screen):
         self.send_unicode("Welcome to C64 Chat, ")
         self.send(CYAN + self.session.handle)
         self.send_unicode(".", CYAN)
-        self.send(RETURN * 2)
+        self.send(RETURN * 23)
 
     def handle_output(self, message):
         if self._in_entry:
@@ -151,6 +152,7 @@ class ChatScreen(_Screen):
                 self.broadcast_message(self._recv_buffer)
                 self._recv_buffer = b""
             elif len(self._recv_buffer) == 0:
+                self._in_entry = False
                 self.send(DELETE * 2)
 
         # Backspace character:
