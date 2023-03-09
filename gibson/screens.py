@@ -17,12 +17,17 @@ class _Screen:
         return self.session.connection
 
     def send(self, message):
+        # TODO: handle cursor offsets
         for b in message:
             self.connection.send(bytes([b]))
 
     def send_unicode(self, string, color=b''):
         # TODO: replace invalid characters
-        self.send(color + bytes([ord(s) for s in string]).swapcase())
+        byte_string = bytes((color + bytes([ord(s) for s in string]).swapcase()))
+        self.connection.send(byte_string)
+
+        self.cursor_x = self.cursor_x + len(string) % 40    # horizontal wrap position
+        self.cursor_y += (self.cursor_x + len(string)) // 40  # vertical offset position
 
     def activate(self):
         raise NotImplementedError
@@ -41,11 +46,23 @@ class _Screen:
         self.cursor_y = 0
 
     def _go_to(self, column, row):
-        # TODO: relative cursor movement
-        self._go_home()
-        self.cursor_x += column
-        self.cursor_y += row
-        self.send(CURSOR_RIGHT * column + CURSOR_DOWN * row)
+        x_diff = column - self.cursor_x
+        y_diff = row - self.cursor_y
+
+        cmd_bytestring = b""
+
+        if x_diff < 0:
+            cmd_bytestring = CURSOR_LEFT * abs(x_diff)
+        elif x_diff > 0:
+            cmd_bytestring = CURSOR_RIGHT * x_diff
+
+        if y_diff < 0:
+            cmd_bytestring += CURSOR_UP * abs(y_diff)
+        elif y_diff > 0:
+            cmd_bytestring += CURSOR_DOWN * y_diff
+
+        self.send(cmd_bytestring)
+        self.cursor_x, self.cursor_y = column, row
 
 
 class SplashScreen(_Screen):
@@ -59,28 +76,29 @@ class SplashScreen(_Screen):
         if character == DELETE:
             self.session.set_screen('login')
         else:
-            self.connection.close()
+            self.send_unicode("Sorry, Commodore only :(", color=RED)
+            # self.connection.close()
 
 
 class LoginScreen(_Screen):
     def activate(self):
         self._reset()
 
-        with open('resources/mainmenu.seq', 'rb') as f:
+        with open('resources/weather.seq', 'rb') as f:
             self.send(f.read())
 
-        self._go_to(column=15, row=2)
-        self.send_unicode("  Log In  ", CYAN)
-
-        self._go_to(column=4, row=6)
-        self.send_unicode("[E] Existing Account", LIGHT_GREEN)
-        self._go_to(column=4, row=7)
-        self.send_unicode("[N] New Account", LIGHT_GREEN)
-        self._go_to(column=4, row=8)
-        self.send_unicode("[Q] Log off", PINK)
-
-        self._go_to(2, 24)
-        self.send_unicode(">", color=YELLOW)
+        # self._go_to(column=15, row=2)
+        # self.send_unicode("  Log In  ", CYAN)
+        #
+        # self._go_to(column=4, row=6)
+        # self.send_unicode("[E] Existing Account", LIGHT_GREEN)
+        # self._go_to(column=4, row=7)
+        # self.send_unicode("[N] New Account", LIGHT_GREEN)
+        # self._go_to(column=4, row=8)
+        # self.send_unicode("[Q] Log off", PINK)
+        #
+        # self._go_to(2, 24)
+        # self.send_unicode(">", color=YELLOW)
 
     def handle_input(self, character):
         self.session.set_screen('mainmenu')
@@ -92,20 +110,19 @@ class MainMenuScreen(_Screen):
         self._reset()
 
         with open('resources/mainmenu.seq', 'rb') as f:
-            seq = f.read()
-            self.send(seq)
+            self.send(f.read())
+            self._go_home()
 
         self._go_to(column=15, row=2)
         self.send_unicode("Main  Menu", CYAN)
 
-        self._go_to(column=4, row=6)
-        self.send_unicode("[B] Browse CBM World", LIGHT_GREEN)
         self._go_to(column=4, row=7)
         self.send_unicode("[V] View the Wall", LIGHT_GREEN)
         self._go_to(column=4, row=8)
         self.send_unicode("[R] Refresh", LIGHT_GREEN)
-        self._go_to(column=4, row=10)
+        self._go_to(column=4, row=21)
         self.send_unicode("[Q] Log off", PINK)
+
         self._go_to(2, 24)
         self.send_unicode(">", color=YELLOW)
 
@@ -113,17 +130,12 @@ class MainMenuScreen(_Screen):
 
         if character == b'R':
             self.activate()
-            return
 
         elif character == b'Q':
             self.connection.close()
-            return
 
         elif character == b'V':
             self.session.set_screen('wall')
-
-        elif character == b'B':
-            self.session.set_screen('cbmworld')
 
 
 class WallScreen(_Screen):
@@ -147,6 +159,7 @@ class WallScreen(_Screen):
         for entry in self.entries:
             self.send(entry)
             self.send(RETURN * 2)
+        self._go_home()
 
         self._go_to(1, 23)
         self.send_unicode("Write an entry? [y/N]", PINK)
@@ -196,30 +209,3 @@ class WallScreen(_Screen):
                 self._returns = 0
                 self.send_unicode("Saved!", PINK)
                 self.send_unicode("[OK]", color=YELLOW)
-
-
-# class CBMWorldScreen(_Screen):
-#     def activate(self):
-#         self._reset()
-#
-#         import discourse
-#
-#         client = discourse.Client(host='https://forum.cbm.world', api_username='benjamin',
-#                                   api_key='bfb02a361033051f0225dc227a44419c618803294b874e5cf887e34a924924a8', )
-#
-#         latest = client.get_latest_topics('default')
-#
-#         for topic in latest:
-#             self._send_unicode(topic.created_at[5:10] + " ", GREEN)
-#             self._send_unicode(topic.title, WHITE)
-#             self.send(RETURN * 2)
-#
-#         self.send(RETURN)
-#
-#         self._go_to(1, 23)
-#         self._send_unicode("Press any key", PINK)
-#         self._send_unicode(">", color=YELLOW)
-#
-#     def handle_input(self, character):
-#         self.send(REVERSE_OFF)
-#         self.session.set_screen('mainmenu')

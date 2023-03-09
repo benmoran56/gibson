@@ -1,4 +1,3 @@
-import time
 import weakref
 import asyncio as _asyncio
 
@@ -133,7 +132,6 @@ class Session:
         self.add_screen('login', LoginScreen())
         self.add_screen('mainmenu', MainMenuScreen())
         self.add_screen('wall', WallScreen())
-        # self.add_screen('cbmworld', CBMWorldScreen())
 
         self.set_screen('splash')
 
